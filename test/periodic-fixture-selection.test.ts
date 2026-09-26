@@ -117,9 +117,7 @@ describe('periodic fixture dependencies select their behavioral cases', () => {
     ['test/fixtures/ceo-payment-ledger-decisions.json', ['plan-ceo-finding-count']],
     ['test/setup-gbrain-remote-caller.test.ts', ['setup-gbrain-remote']],
     ['test/skill-fixture.test.ts', ['journey-ideation', 'journey-plan-eng', 'journey-debug', 'journey-qa', 'journey-code-review', 'journey-ship', 'journey-docs', 'journey-retro', 'journey-design-system', 'journey-visual-qa']],
-    ['test/agent-sdk-runner.test.ts', ['brain-privacy-gate', 'setup-gbrain-remote', 'setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite', ...OVERLAY_FIXTURES.map(fixture => `overlay-harness-${fixture.id}`)]],
     ['test/office-hours-writeback-env.test.ts', ['office-hours-brain-writeback']],
-    ['test/review-army-budget.test.ts', ['review-army-red-team', 'review-army-consensus']],
     ['test/helpers/setup-gbrain-sandbox.ts', ['setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite', 'setup-gbrain-remote']],
     ['test/helpers/setup-gbrain-fixture-command.ts', ['setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite']],
     ['test/fixtures/autoplan-caller.fixture.test.ts', ['autoplan-chain-pty']],
@@ -191,6 +189,25 @@ describe('periodic fixture dependencies select their behavioral cases', () => {
     cases.push([`test/skill-e2e-overlay-harness-${fixture.id}.test.ts`, [`overlay-harness-${fixture.id}`]]);
   }
 
+  test('SDK runner changes retain the native gate and existing periodic consumers', () => {
+    const periodic = ['brain-privacy-gate', 'setup-gbrain-remote', 'setup-gbrain-bad-token',
+      'setup-gbrain-path4-local-pglite', ...OVERLAY_FIXTURES.map(fixture => `overlay-harness-${fixture.id}`)];
+    const result = selectTests(['test/agent-sdk-runner.test.ts'], E2E_TOUCHFILES);
+    expect(result.reason).toBe('diff');
+    expect(result.selected.sort()).toEqual(['auq-format-gate', ...periodic].sort());
+    expect(E2E_TIERS['auq-format-gate']).toBe('gate');
+    for (const id of periodic) expect(E2E_TIERS[id]).toBe('periodic');
+  });
+
+  test('test/review-army-budget.test.ts', () => {
+    const periodic = ['review-army-red-team', 'review-army-consensus'];
+    const result = selectTests(['test/review-army-budget.test.ts'], E2E_TOUCHFILES);
+    expect(result.reason).toBe('diff');
+    expect(result.selected.sort()).toEqual(['review-army-perf-n-plus-one', ...periodic].sort());
+    expect(E2E_TIERS['review-army-perf-n-plus-one']).toBe('gate');
+    for (const id of periodic) expect(E2E_TIERS[id]).toBe('periodic');
+  });
+
   for (const [file, expected] of cases) {
     test(file, () => {
       const result = selectTests([file], E2E_TOUCHFILES);
@@ -219,8 +236,11 @@ test('offering source lookup dependencies select all four gate audits', () => {
     'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts']) {
     const result = selectTests([file], E2E_TOUCHFILES);
     expect(result.reason).toBe('diff');
-    expect(result.selected.sort()).toEqual(expected);
-    for (const id of expected) expect(E2E_TIERS[id]).toBe('gate');
+    const consumers = file === 'test/helpers/workflow-excerpt.ts'
+      ? [...expected, 'ship-managed-hook-refresh', 'ship-unmanaged-hook-consent', 'ship-local-hook-preservation'].sort()
+      : expected;
+    expect(result.selected.sort()).toEqual(consumers);
+    for (const id of consumers) expect(E2E_TIERS[id]).toBe('gate');
   }
   for (const file of ['test/helpers/codex-offering-fixture.ts', 'test/codex-offering-fixture.test.ts',
     'test/fixtures/codex-offering-cdd-public.json', 'test/fixtures/codex-offering-timeout-public.json']) {
@@ -819,7 +839,7 @@ test('stderr lifecycle regression selects runtime consumers without a quality-ma
     'outside-voice-codex-to-claude-code', 'outside-voice-claude-code-to-codex', 'outside-plan-disabled-no-fallback', 'ship-coverage-audit', 'review-coverage-audit',
     'plan-eng-coverage-audit', 'ship-triage', 'ship-docsync', 'docsync-spawned', 'design-consultation-core',
     'design-consultation-existing', 'design-consultation-research', 'design-consultation-preview', 'plan-design-review-no-ui-scope', 'design-review-fix',
-    'design-review-detector-shim', 'design-review-detector-shim-dom', 'design-html-slop-gate', 'diagram-triplet', 'diagram-authoring-quality',
+    'design-review-detector-shim', 'design-review-detector-shim-dom', 'design-review-plugin-handoff', 'design-html-slop-gate', 'diagram-triplet', 'diagram-authoring-quality',
     'gstack-upgrade-happy-path', 'land-and-deploy-workflow', 'land-and-deploy-first-run', 'land-and-deploy-review-gate', 'canary-workflow',
     'benchmark-workflow', 'setup-deploy-workflow', 'autoplan-dual-voice', 'scrape-match-path', 'scrape-prototype-path',
     'skillify-happy-path', 'skillify-provenance-refusal', 'skillify-approval-reject', 'journey-ideation', 'journey-plan-eng',

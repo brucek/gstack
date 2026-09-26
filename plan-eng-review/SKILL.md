@@ -66,13 +66,16 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 
 After target selection, every question uses the preamble's full decision brief, transport and continuous D-numbering. Setup, prerequisite and preparation questions do not approve engineering remedies.
 
-**Startup sequence** (after target selection):
-1. Run the Preamble, including Context Recovery and its setup questions.
-2. Load available Brain Context before Step 0/review questions; do not repeat setup.
-3. Complete web-research readiness, Design Doc Check and the prerequisite offer.
-4. Continue at **Engineering review → Step 0** below; its section Read loads Review preparation and Scope Challenge together.
+**Format precedence:** Copy required command, output and question formats exactly. Apply Voice to newly composed prose.
 
-Keep the reviewed target fixed when selecting the section's separate report destination.
+**Startup sequence** (after target selection):
+1. Run the Preamble command and its startup instructions (Context Recovery and setup questions). Defer Operational Self-Improvement, Telemetry and Plan Status Footer to finish; format/transport rules apply throughout.
+2. Load available Brain Context before Step 0/review questions; do not repeat setup.
+3. Check web-research readiness at **Web research runs in Aside**.
+4. Run **Design Doc Check**, then **Prerequisite Skill Offer**.
+5. Continue at **Engineering review → Step 0** below: full section Read → **Review preparation** → **Scope Challenge**.
+
+Keep the reviewed target fixed when selecting the report destination.
 
 ## Preamble (after scope gate)
 
@@ -182,13 +185,13 @@ Completeness: use `Completeness: N/10` only when options differ in coverage. 10 
 
 Accepted shortcuts leave a trail: when the user selects an option that is BOTH Completeness ≤ 7 AND a durable-scope call (architecture or scope-cut — never a turn-level choice), log it via `gstack-decision-log` with the ceiling and the upgrade trigger in the rationale, and — as part of implementing that option, same edit, no follow-up question — mark each cut corner in code with `gstack-shortcut(dec-<id>): <ceiling>, upgrade when <trigger>` in the language's comment syntax. Never agent-initiated: the marker exists only downstream of the user's explicit choice. /retro harvests these into a debt ledger, joined on the decision id.
 
-Pros / cons: use ✅ and ❌. Minimum 2 pros and 1 con per option when the choice is real; Minimum 40 characters per bullet. Hard-stop escape for one-way/destructive confirmations: `✅ No cons — this is a hard-stop choice`.
+`Pros / cons:` in question text; descriptions use literal ✅/❌ bullets, not Pro:/Con:. Each real option: ≥2 pros and ≥1 con, ≥40 chars each. One-way/destructive escape: `✅ No cons — this is a hard-stop choice`.
 
 Neutral posture: `Recommendation: <default> — this is a taste call, no strong preference either way`; `(recommended)` STAYS on the default option for AUTO_DECIDE.
 
 Effort both-scales: when an option involves effort, label both human-team and CC+gstack time, e.g. `(human: ~2 days / CC: ~15 min)`. Makes AI compression visible at decision time.
 
-Net line closes the tradeoff. Per-skill instructions may add stricter rules.
+`Net:` line closes question text. Per-skill instructions may add stricter rules.
 
 ### Handling 5+ options — split, never drop
 
@@ -336,31 +339,6 @@ For high-stakes ambiguity (architecture, data model, destructive scope, missing 
 
 A claimed limitation or requirement ("the API can't do this", "X requires a credential", "that's impossible on this platform") is a material claim. State one only with the verbatim error, the documented statement, or a live probe in hand — pattern-matching a failure to a familiar story is not evidence. When a cheap probe settles the question, run it BEFORE asking the user anything or declaring a step blocked.
 
-## Continuous Checkpoint Mode
-
-If `CHECKPOINT_MODE` is `"continuous"`: auto-commit completed logical units with `WIP:` prefix.
-
-Commit after new intentional files, completed functions/modules, verified bug fixes, and before long-running install/build/test commands.
-
-Commit format:
-
-```
-WIP: <concise description of what changed>
-
-[gstack-context]
-Decisions: <key choices made this step>
-Remaining: <what's left in the logical unit>
-Tried: <failed approaches worth recording> (omit if none)
-Skill: </skill-name-if-running>
-[/gstack-context]
-```
-
-Rules: stage only intentional files, NEVER `git add -A`, do not commit broken tests or mid-edit state, and push only if `CHECKPOINT_PUSH` is `"true"`. Do not announce each WIP commit.
-
-`/context-restore` reads `[gstack-context]`; `/ship` squashes WIP commits into clean commits.
-
-If `CHECKPOINT_MODE` is `"explicit"`: ignore this section unless a skill or user asks to commit.
-
 ## Context Health (soft directive)
 
 During long-running skill sessions, periodically write a brief `[PROGRESS]` summary: done, next, surprises.
@@ -470,45 +448,44 @@ telemetry — it never blocks the workflow.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Use the selected report file and honor the Review record and write policy for every artifact.
 
-**Format precedence:** Copy required command, output and question formats exactly. Apply Voice to newly composed prose.
-
 
 
 ## Priority hierarchy
-If the user asks you to compress or the system triggers context compaction: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram. Do not preemptively warn about context limits -- the system handles compaction automatically.
+Complete every required stage, decision gate and output. Shorten only optional
+commentary, never Scope Challenge, Sections 1–4, the test diagram or required
+decision/report content. The system handles context limits; do not preemptively warn.
 
 ## My engineering preferences (use these to guide your recommendations):
-* **DRY:** flag repetition aggressively.
-* **Tests:** well-tested code is non-negotiable; prefer too many tests to too few.
-* **Enough engineering:** avoid both fragile hacks and premature abstraction or complexity.
-* **Edge cases:** favor thorough handling and thoughtfulness over speed.
+* **Shared code:** require common behavior and improved reliability or net savings; similar-looking code alone is insufficient.
+* **Tests:** non-negotiable; prefer too many to too few.
+* **Enough engineering:** avoid fragility and premature abstraction/complexity.
+* **Edge cases:** thorough handling over speed.
 * **Explicit over clever.**
-* **Right-sized diff:** choose the smallest clear change. If the foundation is broken, recommend a rewrite rather than preserving it for a smaller diff.
+* **Right-sized diff:** smallest clear change; rewrite a broken foundation when necessary.
 
 ## Cognitive Patterns — How Great Eng Managers Think
 
-Apply these instincts throughout; they are not extra checklist items.
+Apply throughout, not as extra checks:
 
-1. **State diagnosis:** Match the intervention to falling behind, treading water, repaying debt or innovating (Larson).
-2. **Blast radius:** Trace worst-case effects on systems and people.
-3. **Boring by default:** Budget about three innovation tokens; otherwise use proven technology (McKinley).
-4. **Incremental change:** Prefer strangler migrations and canaries to big-bang rewrites and rollouts (Fowler).
+1. **State diagnosis:** Match falling behind, treading water, repaying debt or innovating (Larson).
+2. **Blast radius:** Trace worst-case harm to systems and people.
+3. **Boring by default:** Three innovation tokens; otherwise proven technology (McKinley).
+4. **Incremental change:** Strangler migrations and canaries over big bangs (Fowler).
 5. **Systems over heroes:** Design for tired humans at 3am.
-6. **Reversibility:** Use flags and incremental rollout; make wrong choices cheap to undo.
-7. **Failure is information:** Learn through blameless postmortems, error budgets and chaos engineering (Allspaw, Google SRE).
-8. **Conway's Law:** Design team and system boundaries together (Skelton/Pais).
-9. **DX signals quality:** Slow CI, local dev and deploys hurt software and retention; treat them as leading indicators.
-10. **Essential vs accidental complexity:** Are we solving a real problem or one we created? (Brooks).
-11. **Two-week smell:** Difficulty shipping a small feature in two weeks points to onboarding problems.
-12. **Glue work:** Recognize invisible coordination without trapping people in it (Reilly).
-13. **Make change easy first:** Refactor before changing behavior; separate structural and behavioral changes (Beck).
-14. **Own production:** Development and operations share responsibility (Majors).
-15. **Error budgets:** An SLO of 99.9% permits 0.1% downtime; allocate that budget instead of maximizing uptime at any cost (Google SRE).
+6. **Reversibility:** Flags and incremental rollouts make mistakes cheap to undo.
+7. **Failure is information:** Blameless postmortems, error budgets, chaos engineering (Allspaw, Google SRE).
+8. **Conway's Law:** Design team/system boundaries together (Skelton/Pais).
+9. **DX signals quality:** Slow CI, local dev and deploys predict quality and retention trouble.
+10. **Essential vs accidental complexity:** Real problem or self-created? (Brooks).
+11. **Two-week smell:** A small feature taking two weeks suggests onboarding trouble.
+12. **Glue work:** Value coordination without trapping people in it (Reilly).
+13. **Make change easy first:** Refactor before behavior changes; keep them separate (Beck).
+14. **Own production:** Dev and ops share responsibility (Majors).
+15. **Error budgets:** Spend a 99.9% SLO's 0.1% downtime budget; avoid uptime at any cost (Google SRE).
 
 ## Documentation and diagrams:
-* Use ASCII diagrams liberally for data flow, state machines, dependencies, pipelines and decision trees in plans and design docs.
-* Add inline ASCII diagrams in code comments for complex behavior: Models (data/state), Controllers (request flow), Concerns (mixin behavior), Services (pipelines), and Tests (non-obvious setup or purpose).
-* **Maintain diagrams with code.** Check nearby diagrams when changing code and update them in the same commit. Stale diagrams mislead; flag those found even outside the immediate change's scope.
+* Use ASCII diagrams for flows, states, dependencies, pipelines and decisions in plans/docs; propose inline code diagrams for complex Models, Controllers, Concerns, Services and Tests.
+* Update nearby diagrams with code in the same commit. Flag stale diagrams even outside scope.
 
 ## Brain Context (preflight)
 
@@ -553,19 +530,25 @@ sections. Read a section in full before doing its step; do not work from memory.
 
 ## Web research runs in Aside
 
-When a step calls for looking something up on the web (competitors, current best practices, a known bug, prior art), do it through Aside's own agent first: it searches with the user's real browser, signed-in sessions included. If Aside is not ready, fall back to the WebSearch tool when this host provides one. If neither is available, say so once and continue on what you already know.
+For web research, do it through Aside's own agent first, using the user's signed-in browser. If Aside is not ready, fall back to the WebSearch tool when this host provides one.
 
-Check once per run that Aside is ready (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
+Check once (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
 
 ```bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+_gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING"
+  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  case "$_rc" in
+    124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
+    125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+       else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
+    *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
+  esac
+  unset _o
 fi
 ```
 
@@ -576,7 +559,7 @@ fi
   _aside_exec "Search the web for <query>. Read-only: do not sign in, submit, or change anything. Reply with <format, e.g. up to 8 bullets, each with its source URL>, then stop."
   ```
 
-- `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`: run the same queries with the WebSearch tool if this host provides it — same read-only intent, same untrusted-content rule. If it does not, skip the research and say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. The rest of the skill continues.
+- Any non-READY result: report only the safe status, never raw diagnostics. Run the same queries with the WebSearch tool if available, still read-only and untrusted. Otherwise say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. Continue the skill.
 
 Sanitize every query before it leaves the machine: strip hostnames, IPs, file paths, SQL fragments, and anything that looks like a secret. Search for the error class and the library, not the user's data.
 
@@ -609,7 +592,8 @@ else
 fi
 ```
 If the slug helper fails, treat design context as unavailable and continue to the prerequisite offer; do not infer a design doc path.
-If a design doc exists, read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design — check the prior version for context on what changed and why.
+Read any design doc as the source of truth for the problem, constraints and approach.
+`Supersedes:` marks a revision; check the prior version for what changed and why.
 
 ## Prerequisite Skill Offer
 
@@ -673,13 +657,33 @@ Scope Challenge is mandatory before Section 1.
 > **STOP.** Before starting the Scope Challenge and full review (after target selection and startup), Read `~/.claude/skills/gstack/plan-eng-review/sections/review-sections.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
-## Section self-check (before you finish)
+## Recovery routing
 
-Verify you Read `sections/review-sections.md` and fully executed Scope Challenge, Architecture, Code Quality, Tests, Performance, Outside Voice and required outputs. Redo work attempted from memory after Reading that section.
+At every STOP or failed check, use this route; do not restart.
 
 **Paused question:** Wait for its actual answer without completion telemetry or ExitPlanMode.
+Resume its local procedure with the reply. A missing-result call
+that may have surfaced is still pending; do not duplicate it.
 
-**Blocked outcome:** Stop the review and report `BLOCKED`, the missing path/work, actual attempts and what is needed to resume. Label complete chat-only output **not persisted**; it supplies no saved-review or completion credit. If startup values and a permitted telemetry command are available, run **Telemetry (run last)** once with `OUTCOME=error` and the actual `ERROR_MESSAGE`/`FAILED_STEP`. Do not call ExitPlanMode. Resume at the failed step and repeat affected outputs, read-back and logs.
+**Repairable write/read failure:** Stop before the dependent question or output.
+Use that step's stated recovery, then repeat its full Read-back verification.
+If no recovery is specified or it fails, follow **Blocked outcome**. Never turn
+a failed permitted save into a chat-only success.
+
+**Late change or missing work:** Return to the affected review stage; new or
+reopened choices use Decision procedure. Repeat Approval readiness, then Required
+outputs steps 1–4 for changed outputs before choosing navigation again. Refresh
+affected tests, tasks, dependencies and parallelization. Unchanged saved outputs
+may reuse their successful Review Log. If a final gate discovers stale evidence,
+follow **Blocked outcome** first; then resume here.
+
+**Blocked outcome:** Stop the review and report `BLOCKED`, the missing path/work, actual attempts and what is needed to resume. Label complete chat-only output **not persisted**; it supplies no saved-review or completion credit. If startup values and a permitted telemetry command are available, run **Telemetry (run last)** once with `OUTCOME=error` and the actual `ERROR_MESSAGE`/`FAILED_STEP`. Do not call ExitPlanMode. Resume at the failed step using Recovery routing.
+
+## Section self-check (before you finish)
+
+Confirm you read the section and completed Scope Challenge, Sections 1–4,
+Outside Voice and outputs. If evidence is missing, Read `~/.claude/skills/gstack/plan-eng-review/sections/review-sections.md`
+and use Recovery routing above. Preserve verified work.
 
 ## EXIT PLAN MODE GATE (BLOCKING)
 

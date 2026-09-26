@@ -79,6 +79,17 @@ jobs:
         run: bun run test:cso:macos
         env:
           GSTACK_CSO_MACOS_TESTS: "1"
+      - name: Build browser lifecycle prerequisites
+        run: |
+          bunx playwright install chromium
+          bun run build
+      - name: Exercise native agent ownership and linked settings
+        env:
+          TMPDIR: /tmp
+        run: |
+          files=(browse/test/terminal-agent-lifecycle.test.ts browse/test/terminal-agent-native-observation.test.ts browse/test/terminal-agent-watchdog.test.ts browse/test/server-embedder-terminal-port.test.ts browse/test/server-factory.test.ts test/gstack-settings-hook-symlink.test.ts test/gstack-settings-hook-schema-aware.test.ts)
+          for file in "${files[@]}"; do test -f "$file"; done
+          bun test "${files[@]}"
 
   cso-windows-launcher:
     runs-on: windows-latest
@@ -170,6 +181,21 @@ jobs:
       # deps and is a fast no-op for already-present browsers.
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
+
+      - name: Configure the bundled Chromium sandbox helper
+        run: |
+          set -euo pipefail
+          chrome=$(bun -e 'import { chromium } from "playwright"; import { realpathSync } from "node:fs"; console.log(realpathSync(chromium.executablePath()))')
+          case "$chrome" in
+            "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome) ;;
+            *) echo "Unexpected Chromium installation path" >&2; exit 1 ;;
+          esac
+          helper="${chrome%/*}/chrome_sandbox"
+          installed="${chrome%/*}/chrome-sandbox"
+          test -f "$helper" && test ! -L "$helper"
+          sudo install -T -o root -g root -m 4755 "$helper" "$installed"
+          test "$(stat -c '%u:%a' "$installed")" = '0:4755'
+          cmp -s "$helper" "$installed"
 
       # Headed-browser tests (handoff, extension sidepanel DOM) need a real
       # DISPLAY — first Linux run failed with Playwright's "launched a headed

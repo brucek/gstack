@@ -91,9 +91,14 @@ import {
   installChildSignalForwarding,
   isTerminationRequested,
   killProcessGroup,
+  BunFailureSummaryParser,
+  parseBunFailureResult,
+  normalizeRelativePath,
   strictTestExitCode,
   stripAnsiLine,
 } from './test-strict-output';
+
+export { normalizeRelativePath } from './test-strict-output';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 // design/test was silently absent from BOTH the package.json test script and
@@ -420,10 +425,14 @@ export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_
   return Math.max(baseMs, Math.ceil(predictedMs * 3), fileCount * PER_FILE_WALL_MS);
 }
 /**
- * Full-suite parallelism: leave RESERVED_CPUS cores for the parent runner +
- * OS, cap at MAX_FULL_SUITE_JOBS — beyond ~6 concurrent bun processes the
- * playwright-heavy shards contend on browser launches instead of finishing
- * sooner (measured on an M-series dev box).
+ * Full-suite parallelism: use all available CPUs, with a floor of one and a
+ * cap of MAX_FULL_SUITE_JOBS. Shards stay serial internally; separate shard
+ * processes can overlap subprocess and I/O waits without a fixed CPU reserve.
+ * Prefer availableParallelism() to honor CPU affinity, falling back to cpus()
+ * on runtimes without it. Keep the existing cap: beyond ~6 concurrent bun
+ * processes, playwright-heavy shards contended on browser launches in the
+ * original M-series measurement. More shards are not a guaranteed speedup;
+ * compare complete-suite runs before raising the default further.
  *
  * GSTACK_FREE_JOBS overrides the computed count (the free runner's analogue
  * of the paid runner's EVALS_JOBS). Exists for syscall-supervised sandboxes:
@@ -437,7 +446,6 @@ export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_
  * beefy box can also raise it deliberately.
  */
 export const MAX_FULL_SUITE_JOBS = 6;
-export const RESERVED_CPUS = 2;
 
 export function fullSuiteJobs(): number {
   const raw = process.env.GSTACK_FREE_JOBS;
@@ -449,7 +457,8 @@ export function fullSuiteJobs(): number {
     }
     return Number.parseInt(raw, 10);
   }
-  return Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, os.cpus().length - RESERVED_CPUS));
+  const availableCpus = os.availableParallelism?.() ?? os.cpus().length;
+  return Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, availableCpus));
 }
 
 /**
@@ -485,10 +494,6 @@ export const WORKER_HOSTILE: Record<string, string> = {
  * a renamed file fails the suite instead of silently dropping serialization.
  */
 export const TREE_MUTATING: Record<string, string> = {};
-
-export function normalizeRelativePath(filePath: string): string {
-  return filePath.replace(/\\/g, '/');
-}
 
 export function isFreeTestFile(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath);
@@ -931,8 +936,6 @@ export function shardRunLooksTruncated(status: number | null, output: string): b
 const TEST_PATH_SOURCE = String.raw`\.test\.(?:[cm]?[jt]s|tsx|jsx)`;
 /** A file chunk header: the path bun printed, terminated by a bare colon. */
 const FILE_HEADER_RE = new RegExp(`^(\\S.*${TEST_PATH_SOURCE}):$`);
-/** Same shape strict-output classifies as failed-test, with the name captured. */
-const FAIL_RESULT_CAPTURE_RE = /^\(fail\) (.+) \[\d+(?:\.\d+)?(?:ns|us|µs|ms|s)\]$/;
 /** bun --parallel retries a crashed worker once: `<icon> crashed running <path>, retrying`. */
 const CRASH_RETRY_RE = new RegExp(`crashed running (\\S*${TEST_PATH_SOURCE}), retrying`);
 /** The give-up marker after the retry also crashes: `✗ <path> (crashed: exited)`. */
@@ -955,6 +958,8 @@ export interface FreeRunReport {
   sawTerminalSummary: boolean;
   /** Deduped `(fail)` lines in arrival order, attributed to the current file header. */
   failures: FreeRunFailure[];
+  failedTests: number;
+  unreportedFailures: number;
   /** Files that crashed a worker (bun retries once; a second crash is final). Deduped. */
   crashedFiles: string[];
   /**
@@ -1008,6 +1013,9 @@ export class FreeRunReporter {
   private readonly progress = new Map<string, FileProgress>();
   private readonly failureKeys = new Set<string>();
   private readonly failures: FreeRunFailure[] = [];
+  private namedFailureCount = 0;
+  private reportedFailedTests = 0;
+  private readonly failureSummary = new BunFailureSummaryParser();
   private readonly crashed = new Set<string>();
   private currentFile: string | null = null;
   private inRecap = false;
@@ -1056,6 +1064,8 @@ export class FreeRunReporter {
       filesRan: this.filesRan,
       sawTerminalSummary: this.sawSummary,
       failures: [...this.failures],
+      failedTests: Math.max(this.reportedFailedTests, this.failures.length),
+      unreportedFailures: Math.max(0, this.reportedFailedTests - this.namedFailureCount),
       crashedFiles: [...this.crashed].sort(),
       unhandledErrors: [...this.unhandled],
       inFlight,
@@ -1071,6 +1081,11 @@ export class FreeRunReporter {
     // Linux run: 5 real failures reported as 10 across 2 files).
     const line = stripAnsiLine(rawLine).replace(/^::group::/, '');
     let visible = false;
+    const failedCount = this.failureSummary.consume(line, origin);
+    if (failedCount !== null) {
+      this.reportedFailedTests = Math.max(this.reportedFailedTests, failedCount);
+      visible = failedCount > 0;
+    }
 
     // Bun's terminal recap ("N tests failed:") re-prints every (fail) line
     // WITHOUT re-printing file headers. Attributing those to the stale
@@ -1096,7 +1111,7 @@ export class FreeRunReporter {
       this.currentFile = file;
       this.progressFor(file).headerSeen = true;
     } else {
-      const fail = FAIL_RESULT_CAPTURE_RE.exec(line);
+      const fail = parseBunFailureResult(line);
       const retry = fail ? null : CRASH_RETRY_RE.exec(line);
       const final = fail || retry ? null : CRASH_FINAL_RE.exec(line);
       if (fail) {
@@ -1104,11 +1119,12 @@ export class FreeRunReporter {
         // In the recap, a (fail) line only records a failure the main run
         // somehow never attributed (belt and braces); known names dedupe.
         const recapDuplicate = this.inRecap
-          && this.failures.some((f) => f.testName === fail[1]);
-        const key = `${this.currentFile ?? ''}\u0000${fail[1]}`;
+          && this.failures.some((f) => f.testName === fail);
+        if (!recapDuplicate) this.namedFailureCount += 1;
+        const key = `${this.currentFile ?? ''}\u0000${fail}`;
         if (!recapDuplicate && !this.failureKeys.has(key)) {
           this.failureKeys.add(key);
-          this.failures.push({ file: this.currentFile, testName: fail[1] });
+          this.failures.push({ file: this.currentFile, testName: fail });
         }
       } else if (retry) {
         // The file will run again — a crash+retry does not end its chunk.
@@ -1184,11 +1200,14 @@ export function buildRunEpilogue(
   }
   const failingFiles = new Set(report.failures.map((f) => f.file ?? '(unattributed)'));
   const lines = [
-    `[test:free] FAIL — ${report.failures.length} failing test(s) in ${failingFiles.size} file(s), `
+    `[test:free] FAIL — ${report.failedTests} failing test(s) in ${failingFiles.size} ${report.unreportedFailures > 0 ? 'identified ' : ''}file(s), `
     + `${report.crashedFiles.length} crashed worker(s)${report.unhandledErrors.length > 0 ? `, ${report.unhandledErrors.length} unhandled error(s) between tests` : ''}. Full log: ${logPath}`,
   ];
   for (const failure of report.failures) {
     lines.push(`  ✗ ${failure.file ?? '(unattributed)'} — ${failure.testName}`);
+  }
+  if (report.unreportedFailures > 0) {
+    lines.push(`  ⚠ ${report.unreportedFailures} failure(s) reported without named result lines`);
   }
   for (const file of report.crashedFiles) {
     lines.push(`  ⚠ crashed+retried: ${file}`);
@@ -1537,7 +1556,7 @@ export async function runFreeShard(
     );
   } else if (status === 'failed' && captureFailures.size === 0 && (exitCode ?? 1) === 0) {
     const reason = summary.failedTests > 0 || summary.unhandledBetweenTests > 0
-      ? `printed ${summary.failedTests} failing result(s) and ${summary.unhandledBetweenTests} unhandled error(s) between tests`
+      ? `reported ${summary.failedTests} failing test(s) and ${summary.unhandledBetweenTests} unhandled error(s) between tests`
       : summary.terminalFileCounts.length === 0
         ? "never printed bun's terminal summary — the run was truncated (a process.exit fired mid-suite)"
         : `bun's summary reported ${summary.terminalFileCounts.join(', ')} file(s), expected ${files.length}`;
@@ -1553,6 +1572,7 @@ export async function runFreeShard(
   ])];
   const unattributedFailures = status === 'passed' ? 0
     : report.failures.filter((f) => !f.file).length
+      + report.unreportedFailures
       + report.unhandledErrors.length
       + captureFailures.size
       + (report.sawTerminalSummary ? 0 : 1);

@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isBuiltin } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { resolveEvalModel } from '../../lib/eval-model';
+import { DEFAULT_JUDGE_MAX_TOKENS, resolveEvalModel } from '../../lib/eval-model';
 import { JUDGE_MS } from './eval-budgets';
 import type { JudgeScore } from './llm-judge';
 import { readWorkflowJudgeInput, buildWorkflowJudgePrompt } from './workflow-judge-input';
@@ -13,7 +13,7 @@ import { buildEvalInputIdentity, lookupEvalInputCache, storeEvalInputCache,
 type Thresholds = { clarity: number; completeness: number; actionability: number };
 export interface WorkflowCacheOptions {
   root: string; testName: string; skillPath: string; startMarker: string; endMarker: string | null;
-  judgeContext: string; judgeGoal: string; thresholds: Thresholds; prompt: string; attempt: number;
+  judgeContext: string; judgeGoal: string; model?: string; thresholds: Thresholds; prompt: string; attempt: number;
   env?: NodeJS.ProcessEnv;
 }
 export interface WorkflowJudgeReuse {
@@ -98,10 +98,10 @@ export function prepareWorkflowJudgeCache(opts: WorkflowCacheOptions): {
         coverage: { dependencies: 'complete', prompts: 'complete', environment: 'complete' }, unknownDependencies: [],
         files: workflowJudgeDependencies(opts.root, input.files.map(file => file.path)),
         prompts: { [opts.testName]: prompt },
-        parameters: { rootPackage, thresholds: opts.thresholds, max_tokens: 8192, temperature: null, budget_ms: JUDGE_MS,
+        parameters: { rootPackage, thresholds: opts.thresholds, max_tokens: DEFAULT_JUDGE_MAX_TOKENS, temperature: null, budget_ms: JUDGE_MS,
           request: 'messages.create/user', retries: 1 },
         runtime: { image: env.EVALS_CACHE_RUNTIME_ID!, bun: Bun.version, node: process.versions.node,
-          platform: process.platform, arch: process.arch, judge: resolveEvalModel('judge', undefined, env),
+          platform: process.platform, arch: process.arch, judge: resolveEvalModel('judge', opts.model, env),
           anthropic_base_url: env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
           anthropic_log: env.ANTHROPIC_LOG ?? null,
           proxies: Object.fromEntries(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy']

@@ -44,13 +44,13 @@ const FINDING = render(QUESTIONS.ceo);
 type Mode = 'planning-owned' | 'planning-foreign' | 'cropped-edit' | 'cropped-edit-missing' | 'cropped-edit-changed' | 'cropped-edit-completed' | 'captured' | 'owned' | 'owned-no-question' | 'foreign' | 'wrong-session' | 'missing-native' | 'linked-target' |
   'native-question' | 'scope' | 'prose' | 'finding' | 'routing' | 'unrelated' | 'partial' | 'quoted' | 'foreign-question' |
   'stale-question' | 'answered-question' | 'failed-question' | 'mismatched-use' | 'duplicate-use' | 'judge-error' | 'mode' | 'pending-hook' | 'failed-hook' | 'packet' | 'prose-quoted' | 'prose-partial' | 'prose-foreign' | 'prose-stale' | 'product-type' | 'product-type-undeclared' |
-  'unmatched-hook' | 'invalid-hook' | 'missing-hook' | 'idle-hook' | 'transition-hook' | 'unmatched-native' | 'dx-setup' | 'dx-no-finding' | 'dx-undeclared' | 'dx-cropped' | 'dx-unrelated' | 'dx-uncertain' | 'dx-changing-call';
+  'unmatched-hook' | 'invalid-hook' | 'missing-hook' | 'idle-hook' | 'transition-hook' | 'unmatched-native' | 'dx-setup' | 'dx-editor-hint' | 'dx-no-finding' | 'dx-undeclared' | 'dx-cropped' | 'dx-unrelated' | 'dx-uncertain' | 'dx-changing-call';
 interface SnapshotOptions { evalDir: string; failFirst?: boolean; interrupt?: boolean }
 
 // Complete actual floor function; only clock/PTY/public-event and assessor
 // boundaries are controlled. Real ownership, permission and viewport parsers run.
 // Assessor responses are fixtures, never actual model-quality evidence.
-async function exercise(mode: Mode, kind: keyof typeof SEEDS = 'ceo', capture?: typeof routing.captures[number], productQuestion=productTypes.captures[0]!.question, snapshotOptions?: SnapshotOptions) {
+async function exercise(mode: Mode, kind: keyof typeof SEEDS = 'ceo', capture?: typeof routing.captures[number], productQuestion=productTypes.captures[0]!.question, snapshotOptions?: SnapshotOptions, nativeQuestion?: typeof QUESTIONS.ceo) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'floor-permission-free-'));
   const config = path.join(dir, '.claude');
   let now = Date.now() - (mode.includes('hook') || mode.startsWith('cropped-edit') ? 10_000 : 1), launched: any, fixture: ReturnType<typeof createPlanCountFixture> | undefined;
@@ -60,7 +60,7 @@ async function exercise(mode: Mode, kind: keyof typeof SEEDS = 'ceo', capture?: 
   const retain = snapshotOptions ? createPlanCountSnapshotWriter({EVALS_RUN_ID:'floor-retention-free',GSTACK_EVAL_DIR:snapshotOptions.evalDir}) : undefined;
   const recorders: NonNullable<ReturnType<typeof createFilePermissionRecorder>>[] = [];
   let transcript: any = {status:'ready', calls:[], assistantMessages:[]};
-  const question = structuredClone(QUESTIONS[kind]);
+  const question = structuredClone(nativeQuestion ?? QUESTIONS[kind]);
   if (mode.startsWith('planning-')) question.question += '\n' + ('Explain the owned seeded finding and its existing remedy.\n').repeat(50);
   class Clock extends Date { static now() { return now; } }
   const boundary = {
@@ -89,6 +89,8 @@ async function exercise(mode: Mode, kind: keyof typeof SEEDS = 'ceo', capture?: 
       judgments.push(structuredClone(input));
       expect(opts.model).toBe(resolveEvalModel('warmup')); expect(opts.deadlineAt).toBeGreaterThan(now);
       floor.buildPlanFloorReviewPrompt(input);
+      if(nativeQuestion) return floor.judgePlanFloorReview(input,{...opts,
+        invoke:(()=>{throw Error('Deterministic target choice must not launch an assessor');}) as any});
       if(mode==='judge-error') throw Error('controlled assessment failure');
       const dxSetup = mode.startsWith('dx-') && input.candidate.transport==='native' && input.candidate.question.header===dxCustom.call.questions[0]!.header;
       const classification = dxSetup ? (mode==='dx-unrelated'?'unrelated':mode==='dx-uncertain'?'uncertain':'setup') : mode==='routing'||mode==='scope'||mode==='native-question'||mode==='product-type-undeclared' ? 'setup' :
@@ -244,6 +246,7 @@ async function exercise(mode: Mode, kind: keyof typeof SEEDS = 'ceo', capture?: 
               if(mode==='dx-no-finding') {transcript.calls=[old];screen='';}
               else {publish();transcript.calls.unshift(old);}
             } else throw Error('Unexpected DX custom input: '+JSON.stringify(input));
+            if(mode==='dx-editor-hint' && input!=='\r')screen=screen.replace(' · Esc to cancel',' · ctrl+g to edit in Vim · Esc to cancel');
             history+='\n'+screen;
           } else if (input === '1\r') {
             granted = true;
@@ -326,6 +329,28 @@ for(const kind of Object.keys(SEEDS) as (keyof typeof SEEDS)[]) test(`${kind} co
   expect(e.judgments[0].seed).toContain(SEED_QUOTES[kind]);expect(e.sent).toEqual([`/plan-${kind}-review PLAN.md\r`]);
   expect(e.saved.observation.pendingQuestion.answered).toBe(false);
   expect(e.saved.observation.pendingQuestion.answers).toBeUndefined();
+});
+test('actual floor callback uses the deterministic TTHW finding and leaves its native question unanswered',async()=>{
+  const question={header:'TTHW target',question:'D2 — Which TTHW target should this journey be measured against?\nThe SDK quickstart has eight steps and an unbounded wait for an emailed API key.',multiSelect:false,
+    options:[{label:'A) Champion (< 2 min)',description:'Puts key and database questions on the table; not reachable via docs alone.'},
+      {label:'B) Competitive (2-5 min) (recommended)',description:'Shows which gaps docs polish closes; still blocked by emailed key and local Postgres.'}]};
+  const e=await exercise('finding','devex',undefined,undefined,undefined,question);
+  expect(e.result.outcome).toBe('auq_observed');expect(e.result.auqObserved).toBe(true);
+  expect(e.judgments).toHaveLength(1);expect(e.judgments[0]!.candidate).toMatchObject({transport:'native',question});
+  expect(e.saved.observation.floorAssessment).toMatchObject({kind:'finding',optionIndex:1,optionQuote:question.options[0]!.label});
+  expect(e.sent).toEqual(['/plan-devex-review PLAN.md\r']);
+  expect(e.saved.observation.pendingQuestion.answered).toBe(false);expect(e.saved.observation.pendingQuestion.answers).toBeUndefined();
+});
+test('actual floor callback consumes the first-SDK-call target finding without a quickstart keyword or an answer',async()=>{
+  const question={header:'TTHW target',question:'D2 — Which time-to-first-call target should this review hold the plan to?\nProject/branch/task: gstack-plan-count-M3R8Qq on main, /plan-devex-review of PLAN.md in DX POLISH mode.\nELI10: TTHW (time to hello world) is the clock from reading Step 1 to a first SDK call that returns something the developer understands. For this persona the estimate is ~25-40 min of active work plus an unbounded wait for an emailed key (8 declared steps, ~12 actions).',multiSelect:false,
+    options:[{label:'A) Champion (< 2 min)',description:'Matches the reported leaders; infeasible without hosted sandbox or instant key: scope expansion outside POLISH.'},
+      {label:'B) Competitive (2-5 min)',description:'Reachable if key issuance is automated and Postgres is not required pre-call; requires a scope change.'}]};
+  const e=await exercise('finding','devex',undefined,undefined,undefined,question);
+  expect(e.result.outcome).toBe('auq_observed');expect(e.result.auqObserved).toBe(true);
+  expect(e.judgments).toHaveLength(1);expect(e.judgments[0]!.candidate).toMatchObject({transport:'native',question});
+  expect(e.saved.observation.floorAssessment).toMatchObject({kind:'finding',optionIndex:1,optionQuote:question.options[0]!.label});
+  expect(e.sent).toEqual(['/plan-devex-review PLAN.md\r']);
+  expect(e.saved.observation.pendingQuestion.answered).toBe(false);expect(e.saved.observation.pendingQuestion.answers).toBeUndefined();
 });
 test.each(['unrelated','quoted','foreign-question','stale-question','answered-question','failed-question','mismatched-use','duplicate-use','failed-hook'] as Mode[])('%s cannot earn finding credit',async mode=>{
   const e=await exercise(mode);expect(e.result.outcome).toBe('timeout');expect(e.result.auqObserved).toBe(false);
@@ -523,6 +548,13 @@ test('DX declared context answers setup through native custom input, then awaits
   expect(e.sent).toEqual(['/plan-devex-review PLAN.md\r','4','\x1b[200~'+dxCustom.reply+'\x1b[201~','\r']);
   expect(e.launched.rows).toBe(80);
   expect(e.fixture!.seed).toContain(dxCustom.reply);
+  expect(e.saved.observation.setupContextReplies[0].stage).toBe('done');
+  expect(e.saved.observation.transcript.calls.find((c:any)=>c.answered).answers).toEqual({[dxCustom.call.questions[0]!.question]:dxCustom.reply});
+});
+test('actual DX floor callback consumes editor-hint paste and submit stages before judging the later finding',async()=>{
+  const e=await exercise('dx-editor-hint','devex');
+  expect(e.result.outcome).toBe('auq_observed');expect(e.judgments).toHaveLength(2);
+  expect(e.sent).toEqual(['/plan-devex-review PLAN.md\r','4','\x1b[200~'+dxCustom.reply+'\x1b[201~','\r']);
   expect(e.saved.observation.setupContextReplies[0].stage).toBe('done');
   expect(e.saved.observation.transcript.calls.find((c:any)=>c.answered).answers).toEqual({[dxCustom.call.questions[0]!.question]:dxCustom.reply});
 });

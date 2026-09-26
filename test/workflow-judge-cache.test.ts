@@ -1,6 +1,7 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { Messages } from '@anthropic-ai/sdk/resources/messages';
-import { callJudge } from './helpers/llm-judge';
+import { callJudge, JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS } from './helpers/llm-judge';
+import { getCookieWorkflowManualReview } from './helpers/cookie-workflow-manual-review';
 import { resolveEvalModel } from '../lib/eval-model';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -123,6 +124,17 @@ test('runtime/model/threshold changes miss, and retries never reuse or publish',
   expect(retry.lookup()).toBeNull(); retry.publish(scores); expect(f.entries()).toHaveLength(1);
 });
 
+test('a pinned workflow judge model overrides the global model and changes the cache identity', () => {
+  const f = fixture();
+  f.opts.model = 'claude-sonnet-4-6';
+  f.cache().publish(scores);
+  expect(f.entries()).toHaveLength(1);
+  f.opts.env = { ...f.env, GSTACK_EVAL_MODEL_JUDGE: 'different-global-model' };
+  expect(f.cache().lookup()?.scores).toEqual(scores);
+  f.opts.model = 'claude-opus-4-7';
+  expect(f.cache().lookup()).toBeNull();
+});
+
 test('failed assertions, missing provenance, and missing imported dependencies cannot supply a receipt', () => {
   const f = fixture(); f.cache().publish({ ...scores, clarity: 3 }); expect(f.entries()).toHaveLength(0);
   f.opts.env = { ...f.env, EVALS_RUN_ID: '' }; f.cache().publish(scores); expect(f.entries()).toHaveLength(0);
@@ -141,7 +153,7 @@ test('workflow registration preserves model work and reserves only terminal-reco
   const source = fs.readFileSync(path.join(import.meta.dir, 'skill-llm-eval.test.ts'), 'utf8');
   const body = source.split('async function runWorkflowJudge')[1]!.split('// Block 1:')[0]!;
   const stages = ['workflowJudgeAttempts.set', 'readWorkflowJudgeInput(', 'cache.lookup()',
-    'callJudge<JudgeScore>(prompt, undefined, { signal: controller.signal })',
+    'callJudge<JudgeScore>(prompt, opts.model, { signal: controller.signal, max_tokens: maxTokens })',
     'expect(scores.clarity)', 'expect(scores.completeness)', 'expect(scores.actionability)', 'cache.publish(scores, active)']
     .map(stage => body.indexOf(stage));
   expect(stages.every(position => position >= 0)).toBe(true);
@@ -150,7 +162,7 @@ test('workflow registration preserves model work and reserves only terminal-reco
   expect(body).toContain('const workDeadline = started + JUDGE_MS;');
   expect(source).toContain('const WORKFLOW_JUDGE_RECORD_MS = 5_000;');
   expect(source).toContain('const WORKFLOW_JUDGE_TEST_MS = JUDGE_MS + 10_000;');
-  expect(source.match(/\}, WORKFLOW_JUDGE_TEST_MS\);/g)).toHaveLength(14);
+  expect(source.match(/\}, WORKFLOW_JUDGE_TEST_MS\);/g)).toHaveLength(16);
   expect(source.match(/\}, JUDGE_MS\);/g)).toHaveLength(11);
 });
 
@@ -174,7 +186,7 @@ function actualCallback(f: ReturnType<typeof fixture>, overrides: {
   const run = new Function('ROOT', 'readWorkflowJudgeInput',
     'buildWorkflowJudgePrompt', 'prepareWorkflowJudgeCache', 'workflowJudgeAttempts', 'callJudge',
     'evalCollector', 'expect', 'console', 'performance', 'JUDGE_MS', 'WORKFLOW_JUDGE_RECORD_MS',
-    'setTimeout', 'clearTimeout',
+    'setTimeout', 'clearTimeout', 'JudgeRefusalError', 'getCookieWorkflowManualReview', 'DEFAULT_JUDGE_MAX_TOKENS',
     `${javascript}\nreturn runWorkflowJudge;`)(
     f.root, overrides.read ?? readWorkflowJudgeInput, buildWorkflowJudgePrompt,
     (options: WorkflowCacheOptions) => (overrides.prepare ?? prepareWorkflowJudgeCache)({ ...options, env: f.env }),
@@ -183,7 +195,8 @@ function actualCallback(f: ReturnType<typeof fixture>, overrides: {
       return overrides.judge ? overrides.judge(prompt, model, options) : scores;
     }, { addTest: (entry: any) => records.push(entry) }, expect, { log() {} },
     overrides.clock ? { now: overrides.clock } : performance, overrides.budget ?? 120_000, overrides.allowance ?? 5_000,
-    overrides.setTimer ?? setTimeout, overrides.clearTimer ?? clearTimeout);
+    overrides.setTimer ?? setTimeout, overrides.clearTimer ?? clearTimeout,
+    JudgeRefusalError, getCookieWorkflowManualReview, DEFAULT_JUDGE_MAX_TOKENS);
   return { run, records, signals, prompts, attempts, options: { ...f.opts, suite: 'Cache regression' } };
 }
 
@@ -193,6 +206,8 @@ test('the actual workflow callback executes once, reuses with provenance, and pr
   await first.run(options);
   expect(first.prompts).toEqual([f.opts.prompt]); expect(f.entries()).toHaveLength(1);
   expect(first.records[0]).toMatchObject({ passed: true, execution: 'executed', cost_usd: 0.02 });
+  expect(first.records[0]).not.toHaveProperty('prompt');
+  expect(first.records[0]).not.toHaveProperty('model');
   const reused = actualCallback(f, { judge: async () => ({ ...scores, clarity: 1 }) });
   await reused.run(options);
   expect(reused.prompts).toHaveLength(0);

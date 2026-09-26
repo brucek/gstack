@@ -159,13 +159,13 @@ Completeness: use `Completeness: N/10` only when options differ in coverage. 10 
 
 Accepted shortcuts leave a trail: when the user selects an option that is BOTH Completeness ≤ 7 AND a durable-scope call (architecture or scope-cut — never a turn-level choice), log it via `gstack-decision-log` with the ceiling and the upgrade trigger in the rationale, and — as part of implementing that option, same edit, no follow-up question — mark each cut corner in code with `gstack-shortcut(dec-<id>): <ceiling>, upgrade when <trigger>` in the language's comment syntax. Never agent-initiated: the marker exists only downstream of the user's explicit choice. /retro harvests these into a debt ledger, joined on the decision id.
 
-Pros / cons: use ✅ and ❌. Minimum 2 pros and 1 con per option when the choice is real; Minimum 40 characters per bullet. Hard-stop escape for one-way/destructive confirmations: `✅ No cons — this is a hard-stop choice`.
+`Pros / cons:` in question text; descriptions use literal ✅/❌ bullets, not Pro:/Con:. Each real option: ≥2 pros and ≥1 con, ≥40 chars each. One-way/destructive escape: `✅ No cons — this is a hard-stop choice`.
 
 Neutral posture: `Recommendation: <default> — this is a taste call, no strong preference either way`; `(recommended)` STAYS on the default option for AUTO_DECIDE.
 
 Effort both-scales: when an option involves effort, label both human-team and CC+gstack time, e.g. `(human: ~2 days / CC: ~15 min)`. Makes AI compression visible at decision time.
 
-Net line closes the tradeoff. Per-skill instructions may add stricter rules.
+`Net:` line closes question text. Per-skill instructions may add stricter rules.
 
 ### Handling 5+ options — split, never drop
 
@@ -312,31 +312,6 @@ For high-stakes ambiguity (architecture, data model, destructive scope, missing 
 ## Claimed Limitations Need Evidence
 
 A claimed limitation or requirement ("the API can't do this", "X requires a credential", "that's impossible on this platform") is a material claim. State one only with the verbatim error, the documented statement, or a live probe in hand — pattern-matching a failure to a familiar story is not evidence. When a cheap probe settles the question, run it BEFORE asking the user anything or declaring a step blocked.
-
-## Continuous Checkpoint Mode
-
-If `CHECKPOINT_MODE` is `"continuous"`: auto-commit completed logical units with `WIP:` prefix.
-
-Commit after new intentional files, completed functions/modules, verified bug fixes, and before long-running install/build/test commands.
-
-Commit format:
-
-```
-WIP: <concise description of what changed>
-
-[gstack-context]
-Decisions: <key choices made this step>
-Remaining: <what's left in the logical unit>
-Tried: <failed approaches worth recording> (omit if none)
-Skill: </skill-name-if-running>
-[/gstack-context]
-```
-
-Rules: stage only intentional files, NEVER `git add -A`, do not commit broken tests or mid-edit state, and push only if `CHECKPOINT_PUSH` is `"true"`. Do not announce each WIP commit.
-
-`/context-restore` reads `[gstack-context]`; `/ship` squashes WIP commits into clean commits.
-
-If `CHECKPOINT_MODE` is `"explicit"`: ignore this section unless a skill or user asks to commit.
 
 ## Context Health (soft directive)
 
@@ -525,19 +500,25 @@ Never skip Step 0, system audit, error/rescue map or failure modes.
 
 ## Web research runs in Aside
 
-When a step calls for looking something up on the web (competitors, current best practices, a known bug, prior art), do it through Aside's own agent first: it searches with the user's real browser, signed-in sessions included. If Aside is not ready, fall back to the WebSearch tool when this host provides one. If neither is available, say so once and continue on what you already know.
+For web research, do it through Aside's own agent first, using the user's signed-in browser. If Aside is not ready, fall back to the WebSearch tool when this host provides one.
 
-Check once per run that Aside is ready (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
+Check once (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
 
 ```bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+_gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING"
+  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  case "$_rc" in
+    124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
+    125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+       else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
+    *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
+  esac
+  unset _o
 fi
 ```
 
@@ -548,7 +529,7 @@ fi
   _aside_exec "Search the web for <query>. Read-only: do not sign in, submit, or change anything. Reply with <format, e.g. up to 8 bullets, each with its source URL>, then stop."
   ```
 
-- `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`: run the same queries with the WebSearch tool if this host provides it — same read-only intent, same untrusted-content rule. If it does not, skip the research and say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. The rest of the skill continues.
+- Any non-READY result: report only the safe status, never raw diagnostics. Run the same queries with the WebSearch tool if available, still read-only and untrusted. Otherwise say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. Continue the skill.
 
 Sanitize every query before it leaves the machine: strip hostnames, IPs, file paths, SQL fragments, and anything that looks like a secret. Search for the error class and the library, not the user's data.
 
@@ -857,7 +838,7 @@ run Section 11 only for UI. Strategy-only uses capability-level rows and
 Implementation-ready names interfaces, codepaths, rescue behavior and tests.
 For one narrow decision, apply every section to that choice and its dependencies.
 
-**Keep the stated limits.** Record each measure, value, unit and prerequisite. Count all deliverables, including reused code. Changing a limit needs evidence and user approval.
+**Keep the stated limits.** Record each measure, value, unit and prerequisite. Count all deliverables, including reused code, as scope; 0E estimates only files that will change. Changing a limit needs evidence and user approval.
 
 **Storage policy: choose before writing.** Honor user/host artifact and cleanup
 limits. One working plan: requested output, else reviewed plan, else host active
@@ -876,8 +857,9 @@ ExitPlanMode or next-skill handoff.
 | 0H spec-review metrics | Stop with the cause; reviewer availability does not waive this write. |
 | Review, decision and question history logs | Report cause and unsaved fields; continue. The plan's ledger is still required. |
 
-Paths: CEO archive = `CEO_PLANS` (0H), tasks =
-`~/.gstack/projects/`, metrics = `~/.gstack/analytics/`; log helpers choose theirs.
+Paths are per output: resolve the CEO archive as `CEO_PLANS` in 0H; tasks
+use `~/.gstack/projects/`, metrics use `~/.gstack/analytics/`, and log helpers
+choose their own paths. Do not substitute the CEO archive root for these paths.
 
 Keep one decision ledger through Step 0, Spec Review Loop and Outside Voice:
 
@@ -910,7 +892,9 @@ With no required choice, or after those choices settle, go to 0E.
 **Choose the question's route first:**
 - **Admin question:** mode, setup, navigation, document approval or promotion.
   Use its listed menu and the preamble question transport, then wait and record
-  the answer. Skip steps 1–4; this approves no plan changes.
+  the answer. Skip steps 1–4; this approves no plan changes. For mode selection,
+  0E defines the four-option menu and any authorized automatic preference;
+  neither needs a plan-decision row, comparison grid or completeness score.
 - **Plan decision:** review-depth expansion, scope additions/cuts, approach
   choices, TODOs, specs and review/outside findings. Start at step 1. Reuse exact
   prior approvals; run steps 2–4 only when a new answer is needed, even for one option.
@@ -946,9 +930,12 @@ Build one `currentDecision` using these fields and the preamble format:
 | `header` and option labels | Final native text within host limits; exactly one label includes `(recommended)`. |
 | Each option's `description` | A 1–2 sentence summary; S/M/L/XL effort, low/medium/high risk, reuse, verification coverage, at least 2 ✅ pros and 1 ❌ con. Apply the preamble's minimum lengths and destructive-choice exception. |
 
-Without a prescribed menu, offer 2–3 options (prefer 3 for non-trivial plans).
+For a plan decision without a prescribed menu, offer 2–3 options (prefer 3 for
+non-trivial plans). This default does not replace an admin or scope menu.
 For an option with no implementation, use effort S and state zero implementation
-work, never effort 0. Weigh diff size and long-term architecture equally, including rewrites.
+work, never effort 0. Weigh diff size and long-term architecture equally,
+including rewrites: state the immediate changed-file cost and the future
+maintenance cost for each option, then explain both in the recommendation.
 
 In Proposed, compare every commitment in the labels, descriptions and pros/cons:
 
@@ -1022,27 +1009,32 @@ Record findings even after resolution; say "No issues, moving on." only with non
 ### 0E. Mode Selection
 Follow the preamble's session rules; `CONDUCTOR_SESSION: true` changes transport only.
 
-1. An explicit choice skips steps 2–3. "Go big", "ambitious" or "cathedral" means SCOPE EXPANSION; "hold scope but tempt me", "show me options" or "cherry-pick" means SELECTIVE EXPANSION. Do not ask again.
-2. Recommend without selecting. Count distinct planned file additions, edits and deletions, labeling estimates. For >15 planned changed files, recommend SCOPE REDUCTION. Otherwise: a new product/system (greenfield) → SCOPE EXPANSION; added capability → SELECTIVE EXPANSION; fix/refactor → HOLD SCOPE. If categories overlap or are unclear, explain why and recommend HOLD SCOPE; step 3 still resolves the choice.
-3. Resolve that recommendation. When `QUESTION_TUNING: true`, first check
-   `question_id=plan-ceo-review-mode` through the preamble. A check that exits 0
-   with `AUTO_DECIDE` selects the recommendation; go to the automatic handoff in
+1. An explicit choice skips steps 2–3. "Go big", "ambitious" or "cathedral" means SCOPE EXPANSION; "hold scope but tempt me", "show me options" or "cherry-pick" means SELECTIVE EXPANSION.
+2. Recommend without selecting. Count distinct planned file additions, edits and deletions, labeling estimates. For >15 planned changed files, recommend SCOPE REDUCTION. Otherwise: a new product/system (greenfield) → SCOPE EXPANSION; added capability → SELECTIVE EXPANSION; fix/refactor → HOLD SCOPE. If categories overlap or are unclear, explain why and recommend HOLD SCOPE.
+   In the Recommendation's `because` clause, connect a concrete plan fact or
+   constraint to this mode's actual benefit or tradeoff. Count/category alone
+   is not a reason.
+3. Resolve that recommendation. Mode selection is an admin choice, not a plan
+   decision. When `QUESTION_TUNING: true`, first check `question_id=plan-ceo-review-mode` through the preamble.
+   A check that exits 0 with `AUTO_DECIDE` selects the recommendation; go to the automatic handoff in
    step 4. When tuning is false, omit the lookup.
    Without that successful check, offer all four modes in one AskUserQuestion,
    using step 2's recommendation. **STOP for the answer**; the user's choice
    wins. When `QUESTION_TUNING: true`, include `<gstack-qid:plan-ceo-review-mode>`.
    These modes differ in kind, not coverage; do NOT score completeness.
 
-4. **Mode handoff:** After selection, send brief chat before tools or further questions. Explain the mode's application and rationale. Include every governing approved row's ID, answer reference and accepted scope; do not collapse several choices into one approach.
+4. **Mode handoff:** After selection, send brief chat before tools or further questions: the mode's application and rationale; every governing approved row's ID, answer reference and accepted scope. Keep rows separate.
 - `plan-ceo-review-mode: AUTO_DECIDE`: `Auto-decided review mode → <selected mode> (your preference). Change with /plan-tune. Approved decisions: <rows or none>. <Application and rationale>.`
 - Other selections: `Mode: <selected mode>; approved decisions: <rows or none>. <Application and rationale>.`
 
 Record mode provenance after the handoff:
-- **Explicit user choice:** instruction and selected mode; no question log because none was asked.
+- **Explicit user choice:** instruction and mode; no question log because none was asked.
 - **Successful preference check:** result and recommendation; log `plan-ceo-review-mode`, `auto_decided: true`.
 - **Actual question answer:** question, answer reference and mode; log `auto_decided: false`, including the question ID only when `QUESTION_TUNING: true`.
 
-If 0D needed no new choice, say "No new approach decision was needed". Ask before changing the mode.
+If 0D needed no approach choice, say "No new approach decision was needed" after
+the mode handoff. This records no plan decision, not automatic mode approval.
+Ask before changing a previously chosen mode.
 
 Selecting a mode does not approve changes. Preserve 0D approvals and ask about
 each proposed addition or cut, including those prompted by file-count thresholds.
@@ -1055,7 +1047,7 @@ Follow the selected mode's route:
 | HOLD SCOPE | 0G → 0I |
 | SCOPE REDUCTION | 0G |
 
-After this route, continue to Review Sections for the full review, outputs and report.
+Continue to Review Sections, outputs and report.
 
 ### 0F. Expansion Framing (shared by EXPANSION and SELECTIVE EXPANSION)
 
@@ -1160,6 +1152,9 @@ Repo: {owner/repo}
 
 ## Deferred to TODOS.md
 - {items with context}
+
+## Reviewer Concerns
+- {unresolved spec-review issues with their owning input, or "None"}
 ```
 
 #### Spec Review Loop
@@ -1210,7 +1205,8 @@ Recording the **0H spec-review metrics** is
 required when writing is permitted, even if the reviewer failed. Append the
 actual outcome below; failed mkdir or append stops the review. When writing is
 forbidden, show the actual fields as not persisted and continue without writing.
-Reviewer failure therefore continues here; required storage failure stops here.
+If the reviewer fails, report that limit and continue after recording the outcome;
+if a required save fails, stop before claiming completion.
 ```bash
 mkdir -p ~/.gstack/analytics || exit 1
 echo '{"skill":"plan-ceo-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","iterations":ITERATIONS,"issues_found":FOUND,"issues_fixed":FIXED,"remaining":REMAINING,"quality_score":SCORE}' >> ~/.gstack/analytics/spec-review.jsonl || exit 1

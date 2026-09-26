@@ -913,7 +913,7 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     }
     expect(normalizedPlanSkill).toContain('For every target, run these five Test steps inside Section 3, after Scope Challenge and the Architecture/Code Quality reviews');
     expect(normalizedPlanSkill).toContain('Within Test step 1, read concrete source/tests before tracing or diagramming; Test step 2 adds user flows');
-    expect(normalizedShipSkill).toContain('after Scope Challenge resolves and before Step 2. Map user flows');
+    expect(normalizedShipSkill).toContain('Finish this source read before tracing data flow in audit item 2 below; map user flows afterward');
     // Plan mode traces the plan, not a git diff
     expect(planSkill).toContain('Trace every codepath in the plan');
     expect(planSkill).not.toContain('git diff origin');
@@ -1137,7 +1137,8 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
 
   test('ship SKILL.md contains re-run idempotency behavior', () => {
     expect(shipSkill).toContain('Re-run behavior (idempotency)');
-    expect(shipSkill).toContain('Never skip a verification step');
+    expect(shipSkill).toContain('Every invocation repeats verification:');
+    expect(shipSkill).toContain('Prior execution never exempts verification.');
   });
 });
 
@@ -1610,7 +1611,7 @@ describe('SPEC_REVIEW_LOOP resolver', () => {
     expect(report.replace(/\s+/g, ' ')).toContain('When writing is forbidden, show the actual fields as not persisted and continue without writing');
     expect(report).toContain('failed mkdir or append stops the review');
     expect(report.replace(/\s+/g, ' ')).toContain('Recording the **0H spec-review metrics** is required when writing is permitted, even if the reviewer failed');
-    expect(report).toContain('Reviewer failure therefore continues here; required storage failure stops here');
+    expect(report.replace(/\s+/g, ' ')).toContain('If the reviewer fails, report that limit and continue after recording the outcome; if a required save fails, stop before claiming completion');
     expect(report).toContain('mkdir -p ~/.gstack/analytics || exit 1');
     expect(report).toContain('>> ~/.gstack/analytics/spec-review.jsonl || exit 1');
     expect(report).not.toContain('Your doc survived');
@@ -1979,7 +1980,7 @@ describe('CHANGELOG_WORKFLOW resolver', () => {
 
   test('ship SKILL.md contains changelog workflow', () => {
     expect(shipContent).toContain('CHANGELOG (auto-generate)');
-    expect(shipContent).toContain('git log <base>..HEAD --oneline');
+    expect(shipContent).toContain('git log origin/<base>..HEAD --oneline');
   });
 
   test('changelog workflow includes cross-check step', () => {
@@ -2173,7 +2174,8 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
       expect(content).toContain('use only the native voice');
       expect(content).toContain('give the native Agent its absolute path');
       expect(content).toContain('Read the complete product brief at [the absolute DESIGN_BRIEF path printed above]');
-      expect(content).toContain('Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files/licenses; omit unverified faces');
+      expect(content).toContain("Check each proposed family's official Google Fonts/Fontshare listing via WebSearch/Aside for its exact name, required weights, license and loading URL");
+      expect(content).toContain('Omit faces you cannot verify');
       expect(content).toContain('a face may serve multiple roles');
       expect(content).not.toContain('a single question that covers everything');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
@@ -3865,9 +3867,9 @@ describe('community fixes wave', () => {
   });
 
   // #510 — Context warnings: plan-eng-review has explicit anti-warning
-  test('plan-eng-review/SKILL.md contains "Do not preemptively warn"', () => {
+  test('plan-eng-review/SKILL.md explicitly forbids preemptive context warnings', () => {
     const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
-    expect(content).toContain('Do not preemptively warn');
+    expect(content.toLowerCase()).toContain('do not preemptively warn');
   });
 
   // #474 — Safety Net: no SKILL.md uses find with -delete

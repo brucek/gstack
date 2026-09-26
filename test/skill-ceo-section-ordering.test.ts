@@ -95,6 +95,7 @@ test('CEO completion facts precede summary and report while publication follows 
   expect(positions).toEqual([...positions].sort((a, b) => a - b));
   expect(compactProse(section)).toContain('Derive facts from the approved ledger and completed sections');
   expect(compactProse(section)).toContain('Stage 3 publishes it after report verification');
+  expect(compactProse(section)).toContain('Count a reopened choice only once, using its latest answered option');
 });
 
 // These three source scenarios guard instruction branches, not native execution.
@@ -120,7 +121,7 @@ test('CEO handoff carries all answered rows instead of one synthetic approach', 
   const handoff = source.split('**Mode handoff:**')[1]!.split('### 0F.')[0]!;
   const section = fs.readFileSync(`${SECTION}.tmpl`, 'utf8');
   expect(handoff).toContain('every governing approved row\'s ID, answer reference and accepted scope');
-  expect(handoff).toContain('do not collapse several choices into one approach');
+  expect(handoff).toContain('Keep rows separate');
   expect(handoff).toContain('Auto-decided review mode → <selected mode> (your preference)');
   expect(handoff).toContain('Mode: <selected mode>; approved decisions: <rows or none>');
   expect(handoff).not.toContain('<approved 0D approach>');
@@ -226,6 +227,8 @@ test('CEO defines pending choices and storage before its first decision procedur
     '# CEO Plan: {Feature Name}', '{{SPEC_REVIEW_LOOP}}'].map(stage => persistence.indexOf(stage));
   expect(persistenceStages.every(position => position >= 0)).toBe(true);
   expect(persistenceStages).toEqual([...persistenceStages].sort((a, b) => a - b));
+  expect(source).toContain('## Reviewer Concerns\n- {unresolved spec-review issues with their owning input, or "None"}');
+  expect(step0).toContain('0E estimates only files that will change');
   expect(persistence).not.toContain('Save a chat-only plan');
 });
 
@@ -240,7 +243,7 @@ test('CEO chat storage still supplies both spec inputs and the full report witho
     expect(spec).toContain('Make at most three reviewer launches');
     expect(spec).toContain('If launch or review fails, times out, or cannot review both complete inputs');
     expect(spec).toContain('a successful reviewer result is not required');
-    expect(compactProse(spec)).toContain('Reviewer failure therefore continues here; required storage failure stops here');
+    expect(compactProse(spec)).toContain('If the reviewer fails, report that limit and continue after recording the outcome; if a required save fails, stop before claiming completion');
     expect(spec).not.toContain('quality bonus, not a gate');
     expect(report.indexOf('### Generate the report')).toBeLessThan(report.indexOf('### Write to the plan file'));
     expect(report).not.toContain('If no file is in scope, skip this section');
@@ -591,6 +594,26 @@ test('CEO Step 0 defines the decision record, execution order, and mode approval
   expect(source).toContain('Reuse answered scope decisions without another question or comparison');
   expect(source).toContain("REDUCTION, HOLD and SELECTIVE's HOLD checks");
   expect(compactProse(source)).toContain('present both inputs for final scope-document approval');
+});
+
+// Verify the source contract reaches the actual evaluated generated carrier;
+// the live AUQ gate still proves model compliance with this instruction.
+test('CEO mode recommendation explains a plan-specific consequence without changing routing', () => {
+  for (const file of [`${SKELETON}.tmpl`, SKELETON]) {
+    const source = fs.readFileSync(file, 'utf8');
+    const mode = source.split('### 0E. Mode Selection')[1]!.split('### 0F.')[0]!;
+    const recommendation = compactProse(mode.split('2. Recommend without selecting.')[1]!.split('3. Resolve that recommendation.')[0]!);
+    expect(recommendation).toContain("In the Recommendation's `because` clause, connect a concrete plan fact or constraint");
+    expect(recommendation).toContain("this mode's actual benefit or tradeoff");
+    expect(recommendation).toContain('Count/category alone is not a reason');
+    expect(recommendation).toContain('For >15 planned changed files, recommend SCOPE REDUCTION');
+    expect(recommendation).toContain('a new product/system (greenfield) → SCOPE EXPANSION');
+    expect(recommendation).toContain('added capability → SELECTIVE EXPANSION');
+    expect(recommendation).toContain('fix/refactor → HOLD SCOPE');
+    expect(recommendation).toContain('explain why and recommend HOLD SCOPE');
+    expect(mode).toContain("using step 2's recommendation");
+    expect(mode).toContain('**STOP for the answer**');
+  }
 });
 
 // Boundary checks stay on source templates: generated carriers remain the
@@ -973,7 +996,7 @@ describe('plan-ceo-review carve — static ordering', () => {
     expect(skeleton.indexOf('## Continue after Step 0 (all modes)')).toBeGreaterThan(skeleton.indexOf('### 0I.'));
     expect(skeleton.indexOf('## Continue after Step 0 (all modes)')).toBeLessThan(skeleton.indexOf('> **STOP.**'));
     expect(compactProse(skeleton)).toContain('ask separately per item');
-    expect(skeleton).toContain('After this route, continue to Review Sections for the full review, outputs and report');
+    expect(skeleton).toContain('Continue to Review Sections, outputs and report');
     expect(skeleton).toContain('For >15 planned changed files, recommend SCOPE REDUCTION');
     expect(skeleton).toContain('a new product/system (greenfield) → SCOPE EXPANSION');
     expect(skeleton).toContain('more than 8 files or more than 2 new classes/services');
